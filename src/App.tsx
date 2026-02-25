@@ -363,25 +363,35 @@ export default function App() {
         })
       });
 
+      const contentType = response.headers.get("content-type");
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to get AI response");
+        if (contentType && contentType.includes("application/json")) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || `Server error: ${response.status}`);
+        } else {
+          const textError = await response.text();
+          throw new Error(`Server error (${response.status}): ${textError.slice(0, 100)}`);
+        }
       }
 
-      const data = await response.json();
-      const responseText = data.text;
-      
-      setAiResponse(responseText);
-      
-      // Auto-save session
-      const newSession: InterviewSession = {
-        id: Date.now().toString(),
-        timestamp: Date.now(),
-        transcript: text,
-        aiResponse: responseText,
-        lang: recognitionLang
-      };
-      setSessions(prev => [newSession, ...prev]);
+      if (contentType && contentType.includes("application/json")) {
+        const data = await response.json();
+        const responseText = data.text;
+        
+        setAiResponse(responseText);
+        
+        // Auto-save session
+        const newSession: InterviewSession = {
+          id: Date.now().toString(),
+          timestamp: Date.now(),
+          transcript: text,
+          aiResponse: responseText,
+          lang: recognitionLang
+        };
+        setSessions(prev => [newSession, ...prev]);
+      } else {
+        throw new Error("Received non-JSON response from server");
+      }
     } catch (err: any) {
       console.error("AI Error:", err);
       setError(err.message || "Failed to get AI response. Please try again.");
