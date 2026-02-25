@@ -4,7 +4,6 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { GoogleGenAI, ThinkingLevel } from "@google/genai";
 import { 
   Mic, 
   MicOff, 
@@ -109,7 +108,6 @@ export default function App() {
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
 
   const recognitionRef = useRef<SpeechRecognition | null>(null);
-  const aiRef = useRef<GoogleGenAI | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -155,13 +153,6 @@ export default function App() {
   }, [transcript, interimTranscript]);
 
   useEffect(() => {
-    // Initialize Gemini
-    if (import.meta.env.VITE_GEMINI_API_KEY``) {
-      aiRef.current = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-    } else {
-      setError("Gemini API key is missing. Please check your environment variables.");
-    }
-
     // Initialize Speech Recognition
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (SpeechRecognition) {
@@ -354,43 +345,46 @@ export default function App() {
   };
 
   const getAIHelp = async (text: string) => {
-    if (!aiRef.current || !text.trim()) return;
+    if (!text.trim()) return;
 
     setIsLoading(true);
-    setAiResponse(''); // Clear previous response for streaming
+    setAiResponse(''); 
     try {
-      const knowledgeBaseContext = customQA.trim() 
-        ? `\n\nUSE THE FOLLOWING KNOWLEDGE BASE / Q&A FOR REFERENCE IF RELEVANT:\n${customQA}`
-        : "";
-
-      const responseStream = await aiRef.current.models.generateContentStream({
-        model: "gemini-3-flash-preview",
-        contents: text,
-        config: {
-          systemInstruction: `${systemPrompt}${knowledgeBaseContext}\n\nThe user's preferred language is ${LANGUAGES.find(l => l.code === recognitionLang)?.name}.`,
-          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW }
-        },
+      const langName = LANGUAGES.find(l => l.code === recognitionLang)?.name || "English";
+      
+      const response = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text,
+          systemPrompt,
+          langName,
+          customQA
+        })
       });
 
-      let fullText = "";
-      for await (const chunk of responseStream) {
-        const chunkText = chunk.text || "";
-        fullText += chunkText;
-        setAiResponse(fullText);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to get AI response");
       }
+
+      const data = await response.json();
+      const responseText = data.text;
       
-      // Auto-save session after stream completes
+      setAiResponse(responseText);
+      
+      // Auto-save session
       const newSession: InterviewSession = {
         id: Date.now().toString(),
         timestamp: Date.now(),
         transcript: text,
-        aiResponse: fullText,
+        aiResponse: responseText,
         lang: recognitionLang
       };
       setSessions(prev => [newSession, ...prev]);
-    } catch (err) {
+    } catch (err: any) {
       console.error("AI Error:", err);
-      setError("Failed to get AI response. Please try again.");
+      setError(err.message || "Failed to get AI response. Please try again.");
     } finally {
       setIsLoading(false);
     }
@@ -890,8 +884,8 @@ export default function App() {
             <span>{isHearing ? (isMuted ? 'Muted' : 'Mic Active') : 'Mic Standby'}</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className={`w-2 h-2 rounded-full ${aiRef.current ? 'bg-emerald-500' : 'bg-red-500'}`} />
-            <span>Gemini {aiRef.current ? 'Ready' : 'Offline'}</span>
+            <div className={`w-2 h-2 rounded-full bg-emerald-500`} />
+            <span>AI Assistant Ready</span>
           </div>
           <div className="flex items-center gap-2">
             <Globe className="w-3 h-3" />
