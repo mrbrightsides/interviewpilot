@@ -26,7 +26,9 @@ import {
   ThumbsDown,
   Upload,
   FileText,
-  BookOpen
+  BookOpen,
+  Moon,
+  Sun
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Markdown from 'react-markdown';
@@ -106,6 +108,14 @@ export default function App() {
   const [sessions, setSessions] = useState<InterviewSession[]>([]);
   const [feedback, setFeedback] = useState<'positive' | 'negative' | null>(null);
   const [customQA, setCustomQA] = useState('');
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('interview_dark_mode');
+      return saved ? JSON.parse(saved) : window.matchMedia('(prefers-color-scheme: dark)').matches;
+    }
+    return false;
+  });
 
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const aiRef = useRef<GoogleGenAI | null>(null);
@@ -137,9 +147,24 @@ export default function App() {
   }, [sessions]);
 
   // Save custom QA to localStorage
-  useEffect(() => {
+  const saveKnowledgeBase = () => {
+    setSaveStatus('saving');
     localStorage.setItem('interview_custom_qa', customQA);
-  }, [customQA]);
+    setTimeout(() => {
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus('idle'), 2000);
+    }, 500);
+  };
+
+  // Persist dark mode
+  useEffect(() => {
+    localStorage.setItem('interview_dark_mode', JSON.stringify(isDarkMode));
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [isDarkMode]);
 
   // Auto-scroll transcript to bottom
   useEffect(() => {
@@ -310,6 +335,13 @@ export default function App() {
   const toggleHearing = () => {
     if (!recognitionRef.current) return;
 
+    // Clear transcript and AI talking points whenever the mic button is pressed
+    setTranscript('');
+    setInterimTranscript('');
+    setAiResponse('');
+    setFeedback(null);
+    setError(null);
+
     if (isHearing) {
       recognitionRef.current.stop();
       setIsHearing(false);
@@ -321,11 +353,6 @@ export default function App() {
         getAIHelp(fullText);
       }
     } else {
-      setTranscript('');
-      setInterimTranscript('');
-      setAiResponse('');
-      setFeedback(null);
-      setError(null);
       setIsMuted(false);
       try {
         recognitionRef.current.start();
@@ -420,23 +447,30 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F8F9FA] font-sans text-slate-900 selection:bg-indigo-100">
+    <div className={`min-h-screen font-sans transition-colors duration-300 selection:bg-indigo-100 ${isDarkMode ? 'bg-slate-950 text-slate-100 dark' : 'bg-[#F8F9FA] text-slate-900'}`}>
       {/* Header */}
-      <header className="sticky top-0 z-20 bg-white/90 backdrop-blur-lg border-b border-slate-200 px-6 py-4 flex items-center justify-between shadow-sm">
+      <header className={`sticky top-0 z-20 backdrop-blur-lg border-b px-6 py-4 flex items-center justify-between shadow-sm transition-colors duration-300 ${isDarkMode ? 'bg-slate-900/90 border-slate-800' : 'bg-white/90 border-slate-200'}`}>
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-indigo-200 shadow-lg">
+          <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-indigo-200 dark:shadow-indigo-900/20 shadow-lg">
             <Sparkles className="text-white w-6 h-6" />
           </div>
           <div>
-            <h1 className="text-xl font-bold tracking-tight text-slate-800">Interview Pilot</h1>
+            <h1 className={`text-xl font-bold tracking-tight ${isDarkMode ? 'text-slate-100' : 'text-slate-800'}`}>Interview Pilot</h1>
             <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest">Pro Assistant</p>
           </div>
         </div>
         
         <div className="flex items-center gap-2">
           <button 
+            onClick={() => setIsDarkMode(!isDarkMode)}
+            className={`p-2.5 rounded-xl transition-all ${isDarkMode ? 'hover:bg-slate-800 text-slate-400' : 'hover:bg-slate-100 text-slate-500'}`}
+            title={isDarkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
+          >
+            {isDarkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+          </button>
+          <button 
             onClick={() => setIsHistoryOpen(true)}
-            className="p-2.5 rounded-xl hover:bg-slate-100 text-slate-500 transition-all flex items-center gap-2"
+            className={`p-2.5 rounded-xl transition-all flex items-center gap-2 ${isDarkMode ? 'hover:bg-slate-800 text-slate-400' : 'hover:bg-slate-100 text-slate-500'}`}
             title="History"
           >
             <HistoryIcon className="w-5 h-5" />
@@ -444,7 +478,7 @@ export default function App() {
           </button>
           <button 
             onClick={() => setIsSettingsOpen(!isSettingsOpen)}
-            className={`p-2.5 rounded-xl transition-all ${isSettingsOpen ? 'bg-indigo-50 text-indigo-600' : 'hover:bg-slate-100 text-slate-500'}`}
+            className={`p-2.5 rounded-xl transition-all ${isSettingsOpen ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400' : (isDarkMode ? 'hover:bg-slate-800 text-slate-400' : 'hover:bg-slate-100 text-slate-500')}`}
             title="Settings"
           >
             <Settings className="w-5 h-5" />
@@ -487,26 +521,26 @@ export default function App() {
               exit={{ height: 0, opacity: 0 }}
               className="overflow-hidden"
             >
-              <div className="bg-white border border-slate-200 rounded-3xl p-8 shadow-xl shadow-slate-200/50 space-y-6">
+              <div className={`${isDarkMode ? 'bg-slate-900 border-slate-800 shadow-slate-950/50' : 'bg-white border-slate-200 shadow-slate-200/50'} border rounded-3xl p-8 shadow-xl space-y-6 transition-colors duration-300`}>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                   <div className="space-y-6">
                     <div className="space-y-4">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <Globe className="w-4 h-4 text-indigo-600" />
-                          <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500">Language</h2>
+                          <h2 className={`text-sm font-bold uppercase tracking-wider ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Language</h2>
                         </div>
                       </div>
                       <select 
                         value={recognitionLang}
                         onChange={(e) => setRecognitionLang(e.target.value)}
-                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm font-medium"
+                        className={`w-full p-3 border rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm font-medium transition-colors ${isDarkMode ? 'bg-slate-800 border-slate-700 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-900'}`}
                       >
                         {LANGUAGES.map(lang => (
                           <option key={lang.code} value={lang.code}>{lang.name}</option>
                         ))}
                       </select>
-                      <p className="text-[11px] text-slate-400 italic">
+                      <p className={`text-[11px] italic ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>
                         AI will respond in this language by default.
                       </p>
                     </div>
@@ -515,11 +549,11 @@ export default function App() {
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <MessageSquare className="w-4 h-4 text-indigo-600" />
-                          <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500">System Context</h2>
+                          <h2 className={`text-sm font-bold uppercase tracking-wider ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>System Context</h2>
                         </div>
                         <button 
                           onClick={() => setSystemPrompt(DEFAULT_SYSTEM_PROMPT)}
-                          className="text-xs font-bold text-indigo-600 hover:text-indigo-700"
+                          className="text-xs font-bold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
                         >
                           Reset
                         </button>
@@ -528,7 +562,7 @@ export default function App() {
                         value={systemPrompt}
                         onChange={(e) => setSystemPrompt(e.target.value)}
                         placeholder="e.g., I'm interviewing for a Senior Frontend Role. Focus on React and performance optimization."
-                        className="w-full min-h-[100px] p-4 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm leading-relaxed"
+                        className={`w-full min-h-[100px] p-4 border rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm leading-relaxed transition-colors ${isDarkMode ? 'bg-slate-800 border-slate-700 text-slate-200 placeholder:text-slate-600' : 'bg-slate-50 border-slate-200 text-slate-900'}`}
                       />
                     </div>
                   </div>
@@ -537,10 +571,10 @@ export default function App() {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <BookOpen className="w-4 h-4 text-indigo-600" />
-                        <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500">Custom Knowledge Base / Q&A</h2>
+                        <h2 className={`text-sm font-bold uppercase tracking-wider ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Custom Knowledge Base / Q&A</h2>
                       </div>
                       <div className="flex items-center gap-3">
-                        <label className="cursor-pointer text-xs font-bold text-indigo-600 hover:text-indigo-700 flex items-center gap-1">
+                        <label className="cursor-pointer text-xs font-bold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300 flex items-center gap-1">
                           <Upload className="w-3 h-3" />
                           Upload TXT
                           <input 
@@ -551,30 +585,68 @@ export default function App() {
                           />
                         </label>
                         <button 
+                          onClick={saveKnowledgeBase}
+                          disabled={saveStatus !== 'idle'}
+                          className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${
+                            saveStatus === 'saved' 
+                              ? 'bg-emerald-500 text-white' 
+                              : 'bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50'
+                          }`}
+                        >
+                          {saveStatus === 'saving' ? (
+                            <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                          ) : saveStatus === 'saved' ? (
+                            <Check className="w-3 h-3" />
+                          ) : (
+                            <Save className="w-3 h-3" />
+                          )}
+                          {saveStatus === 'saved' ? 'Saved!' : 'Save'}
+                        </button>
+                        <button 
                           onClick={() => setCustomQA('')}
-                          className="text-xs font-bold text-slate-400 hover:text-red-500"
+                          className={`text-xs font-bold transition-colors ${isDarkMode ? 'text-slate-600 hover:text-red-400' : 'text-slate-400 hover:text-red-500'}`}
                         >
                           Clear
                         </button>
                       </div>
                     </div>
-                    <div className="relative">
-                      <textarea
-                        value={customQA}
-                        onChange={(e) => setCustomQA(e.target.value)}
-                        placeholder="Paste your prepared Q&A, cheat sheet, or company facts here. The AI will use this to provide more accurate answers."
-                        className="w-full min-h-[260px] p-4 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm leading-relaxed"
-                      />
-                      {!customQA && (
-                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-50">
-                          <div className="text-center space-y-2">
-                            <FileText className="w-8 h-8 mx-auto text-slate-300" />
-                            <p className="text-xs text-slate-400">Your private interview cheat sheet</p>
+                      <div className="flex flex-wrap gap-2 mb-3">
+                        {[
+                          { label: 'Job Description', template: '### JOB DESCRIPTION\n- Role: \n- Key Requirements: \n- Tech Stack: \n' },
+                          { label: 'Company Values', template: '### COMPANY VALUES\n- Mission: \n- Culture: \n' },
+                          { label: 'My Projects', template: '### KEY PROJECTS\n1. Project Name: \n   - Challenge: \n   - Action: \n   - Result: \n' },
+                          { label: 'STAR Method', template: '### STAR ANSWERS\n- Situation: \n- Task: \n- Action: \n- Result: \n' }
+                        ].map((item) => (
+                          <button
+                            key={item.label}
+                            onClick={() => setCustomQA(prev => prev + (prev ? '\n\n' : '') + item.template)}
+                            className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all ${
+                              isDarkMode 
+                                ? 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-indigo-400' 
+                                : 'bg-slate-100 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600'
+                            }`}
+                          >
+                            + {item.label}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="relative">
+                        <textarea
+                          value={customQA}
+                          onChange={(e) => setCustomQA(e.target.value)}
+                          placeholder="STRENGTHEN YOUR CONTEXT:&#10;- Paste the Job Description&#10;- Add Company Mission/Values&#10;- List your top 3 projects & key metrics&#10;- Common technical questions you expect&#10;- Your 'Tell me about yourself' script"
+                          className={`w-full min-h-[260px] p-4 border rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm leading-relaxed transition-colors ${isDarkMode ? 'bg-slate-800 border-slate-700 text-slate-200 placeholder:text-slate-600' : 'bg-slate-50 border-slate-200 text-slate-900'}`}
+                        />
+                        {!customQA && (
+                          <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-50">
+                            <div className="text-center space-y-2">
+                              <FileText className={`w-8 h-8 mx-auto ${isDarkMode ? 'text-slate-700' : 'text-slate-300'}`} />
+                              <p className={`text-xs ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>Your private interview cheat sheet</p>
+                            </div>
                           </div>
-                        </div>
-                      )}
-                    </div>
-                    <p className="text-[11px] text-slate-400 italic leading-relaxed">
+                        )}
+                      </div>
+                    <p className={`text-[11px] italic leading-relaxed ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>
                       Tip: Paste common questions and your best answers here. The AI will prioritize this information when generating talking points.
                     </p>
                   </div>
@@ -633,10 +705,10 @@ export default function App() {
           </div>
           
           <div className="text-center space-y-2">
-            <h3 className="text-2xl font-bold text-slate-800">
+            <h3 className={`text-2xl font-bold ${isDarkMode ? 'text-slate-100' : 'text-slate-800'}`}>
               {isHearing ? (isMuted ? 'Paused' : 'Listening...') : 'Ready to Assist'}
             </h3>
-            <p className="text-sm text-slate-500 max-w-xs mx-auto leading-relaxed">
+            <p className={`text-sm max-w-xs mx-auto leading-relaxed ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
               {isHearing 
                 ? 'Click to stop and get AI talking points immediately.' 
                 : 'Tap the microphone when the interviewer starts their question.'}
@@ -647,19 +719,19 @@ export default function App() {
         {/* Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           {/* Transcript Area */}
-          <div className="bg-white border border-slate-200 rounded-3xl p-8 shadow-sm flex flex-col min-h-[400px] transition-all hover:shadow-md">
+          <div className={`${isDarkMode ? 'bg-slate-900 border-slate-800 shadow-slate-950/20' : 'bg-white border-slate-200 shadow-sm'} border rounded-3xl p-8 flex flex-col min-h-[400px] transition-all hover:shadow-md`}>
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-3">
-                <div className="p-2 bg-slate-100 rounded-lg text-slate-500">
+                <div className={`p-2 rounded-lg ${isDarkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>
                   <MessageSquare className="w-4 h-4" />
                 </div>
-                <span className="text-xs font-bold uppercase tracking-widest text-slate-400">Live Transcript</span>
+                <span className={`text-xs font-bold uppercase tracking-widest ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>Live Transcript</span>
               </div>
               <div className="flex items-center gap-2">
                 {(transcript || interimTranscript) && (
                   <button 
                     onClick={clearAll} 
-                    className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                    className={`p-2 rounded-lg transition-all ${isDarkMode ? 'text-slate-600 hover:text-red-400 hover:bg-red-900/20' : 'text-slate-400 hover:text-red-500 hover:bg-red-50'}`}
                     title="Clear"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -670,7 +742,7 @@ export default function App() {
             
             <div 
               ref={transcriptContainerRef}
-              className="flex-1 overflow-y-auto text-slate-700 space-y-4 pr-2 custom-scrollbar"
+              className={`flex-1 overflow-y-auto space-y-4 pr-2 custom-scrollbar ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}
             >
               {transcript && <p className="leading-relaxed text-lg font-medium">{transcript}</p>}
               {interimTranscript && (
@@ -679,37 +751,37 @@ export default function App() {
                 </p>
               )}
               {!transcript && !interimTranscript && (
-                <div className="h-full flex flex-col items-center justify-center text-slate-300 text-center space-y-4">
-                  <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center">
-                    <Mic className="w-8 h-8 opacity-20" />
+                <div className="h-full flex flex-col items-center justify-center text-center space-y-4">
+                  <div className={`w-16 h-16 rounded-full flex items-center justify-center ${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'}`}>
+                    <Mic className={`w-8 h-8 opacity-20 ${isDarkMode ? 'text-slate-400' : 'text-slate-300'}`} />
                   </div>
-                  <p className="text-sm font-medium">Your transcription will appear here in real-time.</p>
+                  <p className={`text-sm font-medium ${isDarkMode ? 'text-slate-500' : 'text-slate-300'}`}>Your transcription will appear here in real-time.</p>
                 </div>
               )}
             </div>
           </div>
 
           {/* AI Response Area */}
-          <div className="bg-white border border-slate-200 rounded-3xl p-8 shadow-sm flex flex-col min-h-[400px] relative overflow-hidden transition-all hover:shadow-md">
+          <div className={`${isDarkMode ? 'bg-slate-900 border-slate-800 shadow-slate-950/20' : 'bg-white border-slate-200 shadow-sm'} border rounded-3xl p-8 flex flex-col min-h-[400px] relative overflow-hidden transition-all hover:shadow-md`}>
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-3">
-                <div className="p-2 bg-indigo-50 rounded-lg text-indigo-600">
+                <div className={`p-2 rounded-lg ${isDarkMode ? 'bg-indigo-900/30 text-indigo-400' : 'bg-indigo-50 text-indigo-600'}`}>
                   <Sparkles className="w-4 h-4" />
                 </div>
-                <span className="text-xs font-bold uppercase tracking-widest text-indigo-400">AI Talking Points</span>
+                <span className={`text-xs font-bold uppercase tracking-widest ${isDarkMode ? 'text-indigo-500' : 'text-indigo-400'}`}>AI Talking Points</span>
               </div>
               {aiResponse && (
                 <div className="flex items-center gap-2">
                   <button 
                     onClick={() => setAiResponse('')}
-                    className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                    className={`p-1.5 rounded-lg transition-all ${isDarkMode ? 'text-slate-600 hover:text-red-400 hover:bg-red-900/20' : 'text-slate-400 hover:text-red-500 hover:bg-red-50'}`}
                     title="Clear AI Response"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
                   <button 
                     onClick={() => copyToClipboard(aiResponse)}
-                    className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-indigo-100 transition-all"
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all ${isDarkMode ? 'bg-indigo-900/30 text-indigo-400 hover:bg-indigo-900/50' : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'}`}
                   >
                     {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
                     {copied ? 'Copied' : 'Copy'}
@@ -731,24 +803,24 @@ export default function App() {
                       />
                     ))}
                   </div>
-                  <p className="text-xs text-slate-400 font-bold uppercase tracking-[0.2em]">Synthesizing Answer</p>
+                  <p className={`text-xs font-bold uppercase tracking-[0.2em] ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>Synthesizing Answer</p>
                 </div>
               ) : aiResponse ? (
                 <div className="space-y-6">
-                  <div className="prose prose-slate prose-indigo max-w-none">
+                  <div className={`prose max-w-none ${isDarkMode ? 'prose-invert prose-indigo' : 'prose-slate prose-indigo'}`}>
                     <Markdown>{aiResponse}</Markdown>
                   </div>
                   
                   {/* Feedback Mechanism */}
-                  <div className="pt-6 border-t border-slate-100 flex items-center justify-between">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Was this helpful?</span>
+                  <div className={`pt-6 border-t flex items-center justify-between ${isDarkMode ? 'border-slate-800' : 'border-slate-100'}`}>
+                    <span className={`text-[10px] font-bold uppercase tracking-widest ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>Was this helpful?</span>
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => handleFeedback('positive')}
                         className={`p-2 rounded-lg transition-all ${
                           feedback === 'positive' 
-                            ? 'bg-emerald-100 text-emerald-600' 
-                            : 'hover:bg-slate-100 text-slate-400'
+                            ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400' 
+                            : (isDarkMode ? 'hover:bg-slate-800 text-slate-600' : 'hover:bg-slate-100 text-slate-400')
                         }`}
                         title="Helpful"
                       >
@@ -758,8 +830,8 @@ export default function App() {
                         onClick={() => handleFeedback('negative')}
                         className={`p-2 rounded-lg transition-all ${
                           feedback === 'negative' 
-                            ? 'bg-red-100 text-red-600' 
-                            : 'hover:bg-slate-100 text-slate-400'
+                            ? 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400' 
+                            : (isDarkMode ? 'hover:bg-slate-800 text-slate-600' : 'hover:bg-slate-100 text-slate-400')
                         }`}
                         title="Not helpful"
                       >
@@ -769,17 +841,17 @@ export default function App() {
                   </div>
                 </div>
               ) : (
-                <div className="h-full flex flex-col items-center justify-center text-slate-300 text-center space-y-4">
-                  <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center">
-                    <Sparkles className="w-8 h-8 opacity-20" />
+                <div className="h-full flex flex-col items-center justify-center text-center space-y-4">
+                  <div className={`w-16 h-16 rounded-full flex items-center justify-center ${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'}`}>
+                    <Sparkles className={`w-8 h-8 opacity-20 ${isDarkMode ? 'text-slate-400' : 'text-slate-300'}`} />
                   </div>
-                  <p className="text-sm font-medium">AI suggestions will be generated once you stop recording.</p>
+                  <p className={`text-sm font-medium ${isDarkMode ? 'text-slate-500' : 'text-slate-300'}`}>AI suggestions will be generated once you stop recording.</p>
                 </div>
               )}
             </div>
 
             {/* Subtle Gradient Bottom */}
-            <div className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-white to-transparent pointer-events-none" />
+            <div className={`absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t pointer-events-none ${isDarkMode ? 'from-slate-900' : 'from-white'} to-transparent`} />
           </div>
         </div>
       </main>
@@ -800,42 +872,42 @@ export default function App() {
               animate={{ x: 0 }}
               exit={{ x: '100%' }}
               transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              className="fixed top-0 right-0 bottom-0 w-full max-w-md bg-white z-50 shadow-2xl flex flex-col"
+              className={`fixed top-0 right-0 bottom-0 w-full max-w-md z-50 shadow-2xl flex flex-col transition-colors duration-300 ${isDarkMode ? 'bg-slate-900' : 'bg-white'}`}
             >
-              <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+              <div className={`p-6 border-b flex items-center justify-between ${isDarkMode ? 'border-slate-800' : 'border-slate-100'}`}>
                 <div className="flex items-center gap-3">
                   <HistoryIcon className="w-5 h-5 text-indigo-600" />
-                  <h2 className="text-lg font-bold">Interview History</h2>
+                  <h2 className={`text-lg font-bold ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}>Interview History</h2>
                 </div>
-                <button onClick={() => setIsHistoryOpen(false)} className="p-2 hover:bg-slate-100 rounded-full transition-all">
+                <button onClick={() => setIsHistoryOpen(false)} className={`p-2 rounded-full transition-all ${isDarkMode ? 'hover:bg-slate-800 text-slate-400' : 'hover:bg-slate-100'}`}>
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
               <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar">
                 {sessions.length === 0 ? (
-                  <div className="h-full flex flex-col items-center justify-center text-slate-400 text-center space-y-4">
-                    <HistoryIcon className="w-12 h-12 opacity-10" />
-                    <p className="text-sm">No saved sessions yet.</p>
+                  <div className="h-full flex flex-col items-center justify-center text-center space-y-4">
+                    <HistoryIcon className={`w-12 h-12 opacity-10 ${isDarkMode ? 'text-slate-400' : 'text-slate-900'}`} />
+                    <p className={`text-sm ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>No saved sessions yet.</p>
                   </div>
                 ) : (
                   sessions.map((session) => (
-                    <div key={session.id} className="group bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-3 transition-all hover:border-indigo-200 hover:shadow-sm">
+                    <div key={session.id} className={`group border rounded-2xl p-5 space-y-3 transition-all hover:border-indigo-200 hover:shadow-sm ${isDarkMode ? 'bg-slate-800/50 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
                       <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                        <span className={`text-[10px] font-bold uppercase tracking-widest ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>
                           {new Date(session.timestamp).toLocaleString()}
                         </span>
                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
                           <button 
                             onClick={() => copyToClipboard(session.aiResponse)}
-                            className="p-1.5 text-slate-400 hover:text-indigo-600"
+                            className={`p-1.5 transition-colors ${isDarkMode ? 'text-slate-500 hover:text-indigo-400' : 'text-slate-400 hover:text-indigo-600'}`}
                             title="Copy AI Response"
                           >
                             <Copy className="w-3.5 h-3.5" />
                           </button>
                           <button 
                             onClick={() => deleteSession(session.id)}
-                            className="p-1.5 text-slate-400 hover:text-red-500"
+                            className={`p-1.5 transition-colors ${isDarkMode ? 'text-slate-500 hover:text-red-400' : 'text-slate-400 hover:text-red-500'}`}
                             title="Delete"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -843,9 +915,9 @@ export default function App() {
                         </div>
                       </div>
                       <div className="space-y-2">
-                        <p className="text-xs font-bold text-slate-600 line-clamp-2 italic">"{session.transcript}"</p>
-                        <div className="h-px bg-slate-200/50 w-full" />
-                        <div className="text-xs text-slate-500 line-clamp-3 prose prose-xs">
+                        <p className={`text-xs font-bold line-clamp-2 italic ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>"{session.transcript}"</p>
+                        <div className={`h-px w-full ${isDarkMode ? 'bg-slate-700' : 'bg-slate-200/50'}`} />
+                        <div className={`text-xs line-clamp-3 prose prose-xs ${isDarkMode ? 'text-slate-400 prose-invert' : 'text-slate-500'}`}>
                           <Markdown>{session.aiResponse}</Markdown>
                         </div>
                       </div>
@@ -859,10 +931,10 @@ export default function App() {
       </AnimatePresence>
 
       {/* Footer / Status */}
-      <footer className="max-w-5xl mx-auto px-6 py-12 flex flex-col sm:flex-row items-center justify-between gap-6 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">
+      <footer className={`max-w-5xl mx-auto px-6 py-12 flex flex-col sm:flex-row items-center justify-between gap-6 text-[10px] font-bold uppercase tracking-[0.2em] transition-colors duration-300 ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>
         <div className="flex items-center gap-8">
           <div className="flex items-center gap-2">
-            <div className={`w-2 h-2 rounded-full ${isHearing ? (isMuted ? 'bg-orange-500' : 'bg-red-500 animate-pulse') : 'bg-slate-300'}`} />
+            <div className={`w-2 h-2 rounded-full ${isHearing ? (isMuted ? 'bg-orange-500' : 'bg-red-500 animate-pulse') : 'bg-slate-300 dark:bg-slate-700'}`} />
             <span>{isHearing ? (isMuted ? 'Muted' : 'Mic Active') : 'Mic Standby'}</span>
           </div>
           <div className="flex items-center gap-2">
@@ -888,11 +960,11 @@ export default function App() {
           background: transparent;
         }
         .custom-scrollbar::-webkit-scrollbar-thumb {
-          background: #E2E8F0;
+          background: ${isDarkMode ? '#334155' : '#E2E8F0'};
           border-radius: 10px;
         }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-          background: #CBD5E1;
+          background: ${isDarkMode ? '#475569' : '#CBD5E1'};
         }
       `}</style>
     </div>
