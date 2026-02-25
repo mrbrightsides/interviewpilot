@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
+import { GoogleGenAI, ThinkingLevel } from "@google/genai";
 import { 
   Mic, 
   MicOff, 
@@ -105,9 +106,9 @@ export default function App() {
   const [sessions, setSessions] = useState<InterviewSession[]>([]);
   const [feedback, setFeedback] = useState<'positive' | 'negative' | null>(null);
   const [customQA, setCustomQA] = useState('');
-  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
 
   const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const aiRef = useRef<GoogleGenAI | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -136,14 +137,9 @@ export default function App() {
   }, [sessions]);
 
   // Save custom QA to localStorage
-  const saveKnowledgeBase = () => {
-    setSaveStatus('saving');
+  useEffect(() => {
     localStorage.setItem('interview_custom_qa', customQA);
-    setTimeout(() => {
-      setSaveStatus('saved');
-      setTimeout(() => setSaveStatus('idle'), 2000);
-    }, 500);
-  };
+  }, [customQA]);
 
   // Auto-scroll transcript to bottom
   useEffect(() => {
@@ -153,6 +149,13 @@ export default function App() {
   }, [transcript, interimTranscript]);
 
   useEffect(() => {
+    // Initialize Gemini
+    if (import.meta.env.VITE_GEMINI_API_KEY) {
+      aiRef.current = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
+    } else {
+      setError("Gemini API key is missing. Please check your environment variables.");
+    }
+
     // Initialize Speech Recognition
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (SpeechRecognition) {
@@ -345,56 +348,43 @@ export default function App() {
   };
 
   const getAIHelp = async (text: string) => {
-    if (!text.trim()) return;
+    if (!aiRef.current || !text.trim()) return;
 
     setIsLoading(true);
-    setAiResponse(''); 
+    setAiResponse(''); // Clear previous response for streaming
     try {
-      const langName = LANGUAGES.find(l => l.code === recognitionLang)?.name || "English";
-      
-      const response = await fetch("/api/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          text,
-          systemPrompt,
-          langName,
-          customQA
-        })
+      const knowledgeBaseContext = customQA.trim() 
+        ? `\n\nUSE THE FOLLOWING KNOWLEDGE BASE / Q&A FOR REFERENCE IF RELEVANT:\n${customQA}`
+        : "";
+
+      const responseStream = await aiRef.current.models.generateContentStream({
+        model: "gemini-3-flash-preview",
+        contents: text,
+        config: {
+          systemInstruction: `${systemPrompt}${knowledgeBaseContext}\n\nThe user's preferred language is ${LANGUAGES.find(l => l.code === recognitionLang)?.name}.`,
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW }
+        },
       });
 
-      const contentType = response.headers.get("content-type");
-      if (!response.ok) {
-        if (contentType && contentType.includes("application/json")) {
-          const errorData = await response.json();
-          throw new Error(errorData.error || `Server error: ${response.status}`);
-        } else {
-          const textError = await response.text();
-          throw new Error(`Server error (${response.status}): ${textError.slice(0, 100)}`);
-        }
+      let fullText = "";
+      for await (const chunk of responseStream) {
+        const chunkText = chunk.text || "";
+        fullText += chunkText;
+        setAiResponse(fullText);
       }
-
-      if (contentType && contentType.includes("application/json")) {
-        const data = await response.json();
-        const responseText = data.text;
-        
-        setAiResponse(responseText);
-        
-        // Auto-save session
-        const newSession: InterviewSession = {
-          id: Date.now().toString(),
-          timestamp: Date.now(),
-          transcript: text,
-          aiResponse: responseText,
-          lang: recognitionLang
-        };
-        setSessions(prev => [newSession, ...prev]);
-      } else {
-        throw new Error("Received non-JSON response from server");
-      }
-    } catch (err: any) {
+      
+      // Auto-save session after stream completes
+      const newSession: InterviewSession = {
+        id: Date.now().toString(),
+        timestamp: Date.now(),
+        transcript: text,
+        aiResponse: fullText,
+        lang: recognitionLang
+      };
+      setSessions(prev => [newSession, ...prev]);
+    } catch (err) {
       console.error("AI Error:", err);
-      setError(err.message || "Failed to get AI response. Please try again.");
+      setError("Failed to get AI response. Please try again.");
     } finally {
       setIsLoading(false);
     }
@@ -560,24 +550,6 @@ export default function App() {
                             onChange={handleFileUpload}
                           />
                         </label>
-                        <button 
-                          onClick={saveKnowledgeBase}
-                          disabled={saveStatus !== 'idle'}
-                          className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${
-                            saveStatus === 'saved' 
-                              ? 'bg-emerald-500 text-white' 
-                              : 'bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50'
-                          }`}
-                        >
-                          {saveStatus === 'saving' ? (
-                            <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                          ) : saveStatus === 'saved' ? (
-                            <Check className="w-3 h-3" />
-                          ) : (
-                            <Save className="w-3 h-3" />
-                          )}
-                          {saveStatus === 'saved' ? 'Saved!' : 'Save'}
-                        </button>
                         <button 
                           onClick={() => setCustomQA('')}
                           className="text-xs font-bold text-slate-400 hover:text-red-500"
@@ -894,8 +866,8 @@ export default function App() {
             <span>{isHearing ? (isMuted ? 'Muted' : 'Mic Active') : 'Mic Standby'}</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className={`w-2 h-2 rounded-full bg-emerald-500`} />
-            <span>AI Assistant Ready</span>
+            <div className={`w-2 h-2 rounded-full ${aiRef.current ? 'bg-emerald-500' : 'bg-red-500'}`} />
+            <span>Gemini {aiRef.current ? 'Ready' : 'Offline'}</span>
           </div>
           <div className="flex items-center gap-2">
             <Globe className="w-3 h-3" />

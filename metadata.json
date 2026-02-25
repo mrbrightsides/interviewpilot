@@ -1,5 +1,5 @@
 {
   "name": "Interview Pilot",
-  "description": "Pro AI assistant for online interviews with real-time transcription, custom knowledge base, and multi-language support.",
+  "description": "Real-time AI assistant for online interviews using speech-to-text.",
   "requestFramePermissions": ["microphone"]
 }
